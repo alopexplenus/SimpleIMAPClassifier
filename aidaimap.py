@@ -2,17 +2,14 @@
 module to read out messages per IMAP
 """
 from imaplib import IMAP4_SSL
-from datetime import date, timedelta, datetime
-from time import mktime
-from time import strptime
+from datetime import date, timedelta
+from time import strftime
 import email
 import dateutil.parser
-from pylab import plot_date, show, xticks, date2num
-from pylab import figure, hist, num2date
-from matplotlib.dates import DateFormatter
+from pylab import show
 
 from visualization import diurnalplot
-from visualization import dailyDistributioPlot
+from visualization import dailydistributioplot
 
 
 import configparser
@@ -32,29 +29,37 @@ def getHeaders():
     print('selecting folder ', config['DATA']['folder'])
     typ = mail.select(config['DATA']['folder'])
     print('Response code:', typ)
-    typ, data = mail.list()
-    print('list():')
-    print(data)
-    print('retrieving the uids')
+    # getting folder structure
+    #typ, data = mail.list()
+    #print(data)
     interval = (date.today() - timedelta(int(config['DATA']['days']))).strftime("%d-%b-%Y")
     result, data = mail.search(None, '(SENTSINCE {date})'.format(date=interval))
+    result, answereddata = mail.search(None, '(ANSWERED SENTSINCE {date})'.format(date=interval))
     print(len(data[0]), 'Email numbers fetched.')
-    print('retrieving the headers')
+    print(len(answereddata[0]), 'Emails were answered.')
     for num in data[0].split():
         typ, mdata = mail.fetch(num, '(RFC822)')
         for response_part in mdata:
             if isinstance(response_part, tuple):
-                part = response_part[1].decode('utf-8')
+                try:
+                    part = response_part[1].decode('utf-8')
+                except:
+                    print("COULD NOT DECODE MESSAGE")
+                    continue
                 msg = email.message_from_string(part)
                 #print(msg.keys())
-                #print(msg['Date'])
+                print(msg['Date'])
+        for anum in answereddata[0].split():
+            if anum == num:
+                msg['Answered'] = 1
         fulldata.append(msg)
-    print(len(fulldata), 'headers fetched.')
+        print(msg['Date'], msg['From'])
+        print(email.header.make_header(email.header.decode_header(msg['Subject'])))
     mail.close()
+    return fulldata
 headers = getHeaders()
-print(headers[0].keys())
 
 xday, ytime = diurnalplot(headers)
-dailyDistributioPlot(ytime)
+dailydistributioplot(ytime)
 print(len(xday), 'Emails analysed.')
 show()

@@ -1,6 +1,5 @@
 """
 this is where i choose and extract features from my emails
-
 """
 # pylint: disable=line-too-long
 import sys
@@ -24,40 +23,6 @@ def read_contacts_from_JSON():
 
 
 
-def message_features():
-    """
-        just a list of wanted features
-    """
-    return [
-        'Dom',
-        'Dow',
-        'IsCalendarEvent',
-        'IsInHTML',
-        'sender_email', #  later be labelized with sklearn.preprocessing.LabelEncoder
-        'InternalSenderPosition', # from CRM
-        'ExternalSenderPosition', # from CRM
-        'ClientId', # from CRM
-        'SenderContactStatus', # data from CRM
-        'SenderReceivesFinancialData', # data from CRM
-        'NumberOfAttachments',
-        'NumberOfWordAttachments',
-        'NumberOfExcelAttachments',
-        'NumberOfPdfAttachments',
-        'NumberOfPptAttachments',
-        'SenderTLD', # will later be labelized with sklearn.preprocessing.LabelEncoder
-        'EstimatedLanguage',
-        'To1',
-        'To2',
-        'To3',
-        'To4',
-        'To5',
-        'To6',
-        'IsForwarded',
-        'NumberOfReplies',
-        'IsReplyingToMe',
-        'IAmInThread',
-        'IAmInCC', # 0 for recepient, 1 for CC, 2 for BCC
-    ]
 
 if __name__ == "__main__":
     print("LOADING DATA")
@@ -66,54 +31,33 @@ if __name__ == "__main__":
 
     usefulHeaders = [
         'isList',
-        #'Accept-Language',
         'Answered',
-        'Auto-Submitted',# whether its an auto-reply
+        #'Auto-Submitted',# whether its an auto-reply
         'Content-Language',
         'Date',
         'From',
-        'To1',
-        'To2',
-        'To3',
-        'To4',
-        'To5',
-        'To6',
-        'Importance',
+        'To',
+        'CC',
+        #'Importance',
         'NewSubject',
-        #'Thread-Topic',
+        'NewMessageText',
         ]
 
 
     df.assign(isList=pd.Series(range(len(df))))
-    df.assign(To1=pd.Series(range(len(df))))
-    df.assign(To2=pd.Series(range(len(df))))
-    df.assign(To3=pd.Series(range(len(df))))
-    df.assign(To4=pd.Series(range(len(df))))
-    df.assign(To5=pd.Series(range(len(df))))
-    df.assign(To6=pd.Series(range(len(df))))
+    df.assign(weekday=pd.Series(range(len(df))))
 
-    df['CC'].fillna(df['Cc'], inplace=True)
-    del df['Cc']
-    df['X-Originating-IP'].fillna(df['x-originating-ip'], inplace=True)
-    del df['x-originating-ip']
+    try:
+        df['CC'].fillna(df['Cc'], inplace=True)
+        del df['Cc']
+    except:
+        print("Apparantly no Cc headers found in dataframe")
+    try:
+        df['X-Originating-IP'].fillna(df['x-originating-ip'], inplace=True)
+        del df['x-originating-ip']
+    except:
+        print("Apparantly no x-originating-ip headers found in dataframe")
 
-    allmails = list()
-    for i in range(len(df)):
-        if df["Precedence"][i] == "bulk":
-            df.loc[i, 'isList'] = 1
-        df.loc[i, "From"] = re.search(r'[\w\.-]+@[\w\.-]+', df["From"][i]).group(0)
-
-        toPeople = list(re.findall(r'[\w\.-]+@[\w\.-]+', df["To"][i]+', '+df["CC"][i]))
-        allmails = allmails + toPeople
-
-        for toField in ['To1', 'To2', 'To3', 'To4', 'To5', 'To6']:
-            try:
-                addr = toPeople.pop()
-                df.loc[i, toField] = addr
-            except:
-                df.loc[i, toField] = "..."
-
-        #print(df["From"][i])
     for columnName in list(df.columns.values):
         if columnName[:5] == "List-":
             for i in range(len(df)):
@@ -122,24 +66,103 @@ if __name__ == "__main__":
                     df.loc[i, 'isList'] = 1
             df.drop(columnName, axis=1, inplace=True)
         elif not columnName in usefulHeaders:
-            #print("DROPPING ", columnName)
             df.drop(columnName, axis=1, inplace=True)
-    #print(df['isList'])
+
+    myDictIsVeryBig = dict()
+    myContacts = dict()
+
+# CREATING DICTIONARIES
     for i in range(len(df)):
-        if df["isList"][i] == 11:
-            print("From: ", df['From'][i]) # let us see all them spammers
-    #print(df.describe())
-df.to_csv(config['DATA']['processed_data_file'], sep=';')
+        NewSubject = df['NewSubject'][i]
+        NewMessageText = df['NewMessageText'][i]
+        SubjectWords = []
+        try:
+            #NS = re.sub(r'[+\-,.<>()%$:|/#_0-9!]', ' ', NewSubject)
+            SubjectWords = re.findall(r'\b\w{3,33}\b', NewSubject)
+        except:
+            print("subject regepx failed: ", NewSubject)
+
+        for word in SubjectWords:
+            #print(word)
+            if word in myDictIsVeryBig:
+                myDictIsVeryBig[word] += 1
+            else:
+                myDictIsVeryBig[word] = 1
+                df.assign(word=pd.Series(range(len(df))))
+                df.loc[i, word] = 1
+
+        BodyWords = []
+        try:
+            BodyWords = re.findall(r'\b\w{4,33}\b', NewMessageText)
+        except:
+            print("body regepx failed: ", NewMessageText)
+
+        for word in BodyWords:
+            #print(word)
+            if word in myDictIsVeryBig:
+                myDictIsVeryBig[word] += 1
+                if myDictIsVeryBig[word] == 100:
+                    df.drop(word, axis=1, inplace=True)
+                if myDictIsVeryBig[word] < 100:
+                    df.loc[i, word] = 1
+            else:
+                myDictIsVeryBig[word] = 1
+                df.assign(word=pd.Series(range(len(df))))
+                df.loc[i, word] = 1
+
+        toPeople = list(re.findall(r'[\w\.-]+@[\w\.-]+', df["To"][i]+', '+df["CC"][i]))
+        for address in toPeople:
+            if address in myContacts:
+                myContacts[address] += 1
+            else:
+                myContacts[address] = 1
+                df.assign(address=pd.Series(range(len(df))))
+            df.loc[i, address] = 1
+
+    print(sorted(myDictIsVeryBig.items(), key=lambda x: x[1]))
+
+# CUTTING TOO RARE WORDS
+    for word in myDictIsVeryBig:
+        if myDictIsVeryBig[word] == 1:
+            df.drop(word, axis=1, inplace=True)
+
+# WORKING ON VALUES
+
+    for i in range(len(df)):
+        try:
+            if df["Precedence"][i] == "bulk":
+                df.loc[i, 'isList'] = 1
+        except:
+            print("no precedence header in df")
+        try:
+            df.loc[i, "From"] = re.search(r'[\w\.-]+@[\w\.-]+', df["From"][i]).group(0)
+        except:
+            df.loc[i, "From"] = 'n/a'
+
+        if df["Answered"][i] != "1":
+            df.loc[i, 'Answered'] = 0
+        try:
+            df.loc[i, 'Date'] = str(df['Date'][i][:3])
+        except:
+            print("could not parse date "+str(df['Date'][i]))
+            df.loc[i, 'Date'] = 'n/a'
+
+
+
+    print("WRITING PROCESSED FILE")
+    df.to_csv(config['DATA']['processed_data_file'], sep=';')
 
 
 # labels to numbers
-for toField in ['From', 'Content-Language', 'Auto-Submitted']:
-    le = preprocessing.LabelEncoder()
-    print(toField)
-    le.fit(df[toField])
-    print("FITS")
-    df[toField] = le.transform(df[toField])
+    for toField in ['From', 'Content-Language', 'Date']:
+        le = preprocessing.LabelEncoder()
+        print("FITTING: ", toField)
+        le.fit(df[toField])
+        df[toField] = le.transform(df[toField])
 
-df.to_csv(config['DATA']['labeled_data_file'], sep=';')
-
-#read_contacts_from_JSON()
+    df.drop("To", axis=1, inplace=True)
+    df.drop("CC", axis=1, inplace=True)
+    df.drop("NewSubject", axis=1, inplace=True)
+    df.drop("NewMessageText", axis=1, inplace=True)
+    print("WRITING LABELED FILE")
+    df.to_csv(config['DATA']['labeled_data_file'], sep=';')

@@ -8,15 +8,34 @@ import email
 import dateutil.parser
 import numpy as np
 import pandas as pd
-
-
-
+import re
 import configparser
+
 config = configparser.ConfigParser()
 config.read('config.ini')
 
 
-# In[99]:
+def usefulHeaders():
+    return [
+        'Answered',
+        'Auto-Submitted',# whether its an auto-reply
+        'Content-Language',
+        'Date',
+        'From',
+        'To',
+        'CC',
+        'Cc',
+        'Importance',
+        'NewSubject',
+        'NewMessageText',
+        ]
+
+def cleanhtml(raw_html):
+    cleanr = re.compile('<.*?>')
+    cleanr_linebreaks = re.compile('<.*?>')
+    cleantext = re.sub(cleanr, ' ', raw_html.replace('\n', ' ').replace('\r', ''))
+    return cleantext
+
 
 def getHeaders():
     """ retrieve the headers of the emails
@@ -48,40 +67,52 @@ def getHeaders():
                     print("COULD NOT DECODE MESSAGE")
                     continue
                 msg = email.message_from_string(part)
-                #print(msg['Date'])
+
         for anum in answereddata[0].split():
             if anum == num:
                 msg['Answered'] = 1
-        fulldata.append(msg)
-        #print("Fulldata len ", len(fulldata))
+        if msg.is_multipart():
+            for part in msg.walk():
+                if part.get_content_type() == 'text/plain':
+                    text = part.get_payload()
+        else:
+            try:
+                text = msg.get_payload(None, True).decode('utf-8')
+            except:
+                text = str(msg.get_payload(None, True))
         msg['NewSubject'] = email.header.make_header(email.header.decode_header(msg['Subject']))
+# FILTER OUT UNNEEDED CALENDAR ITEMS AND NOTIFICATIONS
+        if text.find('path=/calendar/item') > 0:
+            continue
+        if msg['From'].find('info@interpont.com') > 0:
+            continue
+        msg['NewMessageText'] = cleanhtml(text)
         #print(msg['NewSubject'])
         #msg.pop('Subject', None) # drop it for good
+        fulldata.append(msg)
         keys = msg.keys()
         for key in keys:
-            if key == "Subject":
-                continue
-            allkeys.add(key)
+            if key in usefulHeaders():
+                allkeys.add(key)
         #print(len(allkeys))
         #print(email.header.make_header(email.header.decode_header(msg['Subject'])))
     mail.close()
-    print(allkeys)
     return fulldata, allkeys
 
-mails, allkeys = getHeaders()
-print(len(mails), "mails in dataset")
-mydata = np.empty((len(mails), len(allkeys)), dtype='object')
-row = 0
-for m in mails:
-    col = 0
-    for k in allkeys:
-        mydata[row][col] = m[k]
-        col += 1
-    row += 1
-#print(mydata[0])
-#print(mydata[1])
-#print(mydata[11])
-#np.savetxt("mailheaders.csv", mydata, delimiter=";")
+if __name__ == "__main__":
+    mails, allkeys = getHeaders()
+    allkeys.add("Precedence")
+    print(allkeys)
+    print(len(mails), "mails in dataset")
+    mydata = np.empty((len(mails), len(allkeys)), dtype='object')
+    row = 0
+    for m in mails:
+        col = 0
+        for k in allkeys:
+            mydata[row][col] = m[k]
+            col += 1
+        row += 1
+    print("populated ndarray")
 
-MyDataFrame = pd.DataFrame(mydata, columns=allkeys, dtype=str)
-MyDataFrame.to_csv(config['DATA']['primary_data_file'], sep=';')
+    MyDataFrame = pd.DataFrame(mydata, columns=allkeys, dtype=str)
+    MyDataFrame.to_csv(config['DATA']['primary_data_file'], sep=';')

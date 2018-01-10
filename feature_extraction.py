@@ -27,18 +27,16 @@ def read_contacts_from_JSON():
 if __name__ == "__main__":
     print("LOADING DATA")
     filename = sys.argv.pop()
-    df = pd.DataFrame.from_csv(config['DATA']['primary_data_file'], sep=';')
+    df = pd.read_csv(config['DATA']['primary_data_file'], sep=';', index_col=False)
 
     usefulHeaders = [
         'isList',
         'Answered',
-        #'Auto-Submitted',# whether its an auto-reply
         'Content-Language',
         'Date',
         'From',
         'To',
         'CC',
-        #'Importance',
         'NewSubject',
         'NewMessageText',
         ]
@@ -52,65 +50,68 @@ if __name__ == "__main__":
         del df['Cc']
     except:
         print("Apparantly no Cc headers found in dataframe")
-    try:
-        df['X-Originating-IP'].fillna(df['x-originating-ip'], inplace=True)
-        del df['x-originating-ip']
-    except:
-        print("Apparantly no x-originating-ip headers found in dataframe")
 
     for columnName in list(df.columns.values):
         if columnName[:5] == "List-":
             for i in range(len(df)):
-                if df[columnName][i] != "None":
-                    #print(df[columnName][i])
-                    df.loc[i, 'isList'] = 1
+                try:
+                    if df[columnName][i] != "None":
+                        df.loc[i, 'isList'] = 1
+                except:
+                    print("ERROR COMPARING TO STRING: ", df[columnName][i])
             df.drop(columnName, axis=1, inplace=True)
         elif not columnName in usefulHeaders:
             df.drop(columnName, axis=1, inplace=True)
 
     myDictIsVeryBig = dict()
+    mySubjectDict = dict()
     myContacts = dict()
 
 # CREATING DICTIONARIES
     for i in range(len(df)):
-        NewSubject = df['NewSubject'][i]
-        NewMessageText = df['NewMessageText'][i]
+        NewSubject = str(df['NewSubject'][i]).lower()
+        NewMessageText = str(df['NewMessageText'][i]).lower()
         SubjectWords = []
         try:
-            #NS = re.sub(r'[+\-,.<>()%$:|/#_0-9!]', ' ', NewSubject)
-            SubjectWords = re.findall(r'\b\w{3,33}\b', NewSubject)
+            SubjectWords = re.findall(r'\b\w{3,15}\b', str(NewSubject))
         except:
             print("subject regepx failed: ", NewSubject)
 
         for word in SubjectWords:
             #print(word)
-            if word in myDictIsVeryBig:
-                myDictIsVeryBig[word] += 1
+            columnName = word+'_s'
+            if word in mySubjectDict:
+                mySubjectDict[word] += 1
             else:
-                myDictIsVeryBig[word] = 1
-                df.assign(word=pd.Series(range(len(df))))
-                df.loc[i, word] = 1
+                mySubjectDict[word] = 1
+                df.assign(columnName=pd.Series(range(len(df))))
+                df.loc[i, columnName] = 1
 
         BodyWords = []
         try:
-            BodyWords = re.findall(r'\b\w{4,33}\b', NewMessageText)
+            BodyWords = re.findall(r'\b[^\d \t+_/&;-=]{4,15}\b', str(NewMessageText))
         except:
             print("body regepx failed: ", NewMessageText)
 
+        wc = dict()
         for word in BodyWords:
-            #print(word)
+            if word in wc:
+                wc[word] += 1
+            else:
+                wc[word] = 1
+            columnName = word+'_b'
             if word in myDictIsVeryBig:
                 myDictIsVeryBig[word] += 1
                 if myDictIsVeryBig[word] == 100:
-                    df.drop(word, axis=1, inplace=True)
+                    df.drop(columnName, axis=1, inplace=True)
                 if myDictIsVeryBig[word] < 100:
-                    df.loc[i, word] = 1
+                    df.loc[i, columnName] = wc[word]
             else:
                 myDictIsVeryBig[word] = 1
-                df.assign(word=pd.Series(range(len(df))))
-                df.loc[i, word] = 1
+                df.assign(columnName=pd.Series(range(len(df))))
+                df.loc[i, columnName] = 1
 
-        toPeople = list(re.findall(r'[\w\.-]+@[\w\.-]+', df["To"][i]+', '+df["CC"][i]))
+        toPeople = list(re.findall(r'[\w\.-]+@[\w\.-]+', str(df["To"][i])+', '+str(df["CC"][i])))
         for address in toPeople:
             if address in myContacts:
                 myContacts[address] += 1
@@ -124,16 +125,17 @@ if __name__ == "__main__":
 # CUTTING TOO RARE WORDS
     for word in myDictIsVeryBig:
         if myDictIsVeryBig[word] == 1:
-            df.drop(word, axis=1, inplace=True)
+            columnName = word+'_occurences'
+            try:
+                df.drop(columnName, axis=1, inplace=True)
+            except:
+                print(columnName, " not found")
+    df.drop("To", axis=1, inplace=True)
 
 # WORKING ON VALUES
 
     for i in range(len(df)):
-        try:
-            if df["Precedence"][i] == "bulk":
-                df.loc[i, 'isList'] = 1
-        except:
-            print("no precedence header in df")
+
         try:
             df.loc[i, "From"] = re.search(r'[\w\.-]+@[\w\.-]+', df["From"][i]).group(0)
         except:
@@ -159,8 +161,6 @@ if __name__ == "__main__":
         print("FITTING: ", toField)
         le.fit(df[toField])
         df[toField] = le.transform(df[toField])
-
-    df.drop("To", axis=1, inplace=True)
     df.drop("CC", axis=1, inplace=True)
     df.drop("NewSubject", axis=1, inplace=True)
     df.drop("NewMessageText", axis=1, inplace=True)

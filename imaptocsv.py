@@ -1,5 +1,5 @@
 """
-module to read out messages per IMAP
+module to read out messages into csv
 """
 from imaplib import IMAP4_SSL
 from datetime import date, timedelta
@@ -8,8 +8,9 @@ import email
 import dateutil.parser
 import numpy as np
 import pandas as pd
-import re
 import configparser
+import argparse
+from mailworker import  MailWorker
 
 config = configparser.ConfigParser()
 config.read('config.ini')
@@ -30,89 +31,36 @@ def usefulHeaders():
         'NewMessageText',
         ]
 
-def cleanhtml(raw_html):
-    cleanr = re.compile('<.*?>')
-    cleanr_linebreaks = re.compile('<.*?>')
-    cleantext = re.sub(cleanr, ' ', raw_html.replace('\n', ' ').replace('\r', ''))
-    return cleantext
 
 
-def getHeaders():
-    """ retrieve the headers of the emails
-        from d days ago until now """
-    fulldata = []
-    allkeys = set([])
-    # imap connection
-    mail = IMAP4_SSL(config['SERVER']['imap_address'])
-    mail.login(config['SERVER']['login'], config['SERVER']['password'])
-    print('selecting folder ', config['DATA']['folder'])
-    typ = mail.select(config['DATA']['folder'])
-    print('Response code:', typ)
-    # getting folder structure
-    #typ, data = mail.list()
-    #print(data)
-    interval = (date.today() - timedelta(int(config['DATA']['days']))).strftime("%d-%b-%Y")
-    result, data = mail.search(None, '(SENTSINCE {date})'.format(date=interval))
-    result, answereddata = mail.search(None, '(ANSWERED SENTSINCE {date})'.format(date=interval))
-    print(len(data[0].split()), 'Email numbers fetched.')
-    print(len(answereddata[0].split()), 'Emails were answered.')
-    for num in data[0].split():
-        #print("message # ", num)
-        typ, mdata = mail.fetch(num, '(RFC822)')
-        for response_part in mdata:
-            if isinstance(response_part, tuple):
-                try:
-                    part = response_part[1].decode('utf-8')
-                except:
-                    print("COULD NOT DECODE MESSAGE")
-                    continue
-                msg = email.message_from_string(part)
 
-        for anum in answereddata[0].split():
-            if anum == num:
-                msg['Answered'] = 1
-        if msg.is_multipart():
-            for part in msg.walk():
-                if part.get_content_type() == 'text/plain':
-                    text = part.get_payload()
-        else:
-            try:
-                text = msg.get_payload(None, True).decode('utf-8')
-            except:
-                text = str(msg.get_payload(None, True))
-        msg['NewSubject'] = email.header.make_header(email.header.decode_header(msg['Subject']))
-# FILTER OUT UNNEEDED CALENDAR ITEMS AND NOTIFICATIONS
-        if text.find('path=/calendar/item') > 0:
-            continue
-        if msg['From'].find('info@interpont.com') > 0:
-            continue
-        msg['NewMessageText'] = cleanhtml(text)
-        #print(msg['NewSubject'])
-        #msg.pop('Subject', None) # drop it for good
-        fulldata.append(msg)
-        keys = msg.keys()
-        for key in keys:
-            if key in usefulHeaders():
-                allkeys.add(key)
-        #print(len(allkeys))
-        #print(email.header.make_header(email.header.decode_header(msg['Subject'])))
-    mail.close()
-    return fulldata, allkeys
 
 if __name__ == "__main__":
-    mails, allkeys = getHeaders()
-    allkeys.add("Precedence")
-    print(allkeys)
+    parser = argparse.ArgumentParser(description='specify number of email data volume')
+    parser.add_argument('volume_number', type=int, nargs='?', help='specify the data volume number')
+    args = parser.parse_args()
+    if args.volume_number == None:
+        args.volume_number = 1
+    print("VOLUME NUMBER: ", int(args.volume_number))
+    mw = MailWorker()
+    data, answereddata = mw.get_message_id_list(int(args.volume_number))
+    mails = mw.fetch(data, answereddata)
+    for i in answereddata:
+        mw.storeflag(i)
+    mw.mailclose()
     print(len(mails), "mails in dataset")
-    mydata = np.empty((len(mails), len(allkeys)), dtype='object')
+    mydata = np.empty((len(mails), len(usefulHeaders())), dtype='object')
     row = 0
     for m in mails:
         col = 0
-        for k in allkeys:
+        for k in usefulHeaders():
             mydata[row][col] = m[k]
             col += 1
         row += 1
     print("populated ndarray")
 
-    MyDataFrame = pd.DataFrame(mydata, columns=allkeys, dtype=str)
-    MyDataFrame.to_csv(config['DATA']['primary_data_file'], sep=';')
+    MyDataFrame = pd.DataFrame(mydata, columns=usefulHeaders(), dtype=str)
+    if args.volume_number == 1:
+        MyDataFrame.to_csv(config['DATA']['primary_data_file'], sep=';', index=False)
+    else:
+        MyDataFrame.to_csv(config['DATA']['primary_data_file'], sep=';', mode='a', header=False, index=False)

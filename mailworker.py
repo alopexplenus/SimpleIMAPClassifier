@@ -29,9 +29,12 @@ class MailWorker():
         print('selecting folder ', config['DATA']['folder'])
         typ = self.mail.select(config['DATA']['folder'])
         print('Response code:', typ)
+        #uids = self.mail.uid('SEARCH', 'ALL')[1][0].split()
+        #print(uids)
+        #self.storeflag(uids[-1])
 
-    def storeflag(self, num):
-        self.mail.store(num, '+FLAGS', '\\Flagged')
+    def storeflag(self, uid):
+        self.mail.uid('STORE', uid, '+FLAGS', r'\Flagged')
 
     def get_message_id_list(self, volume):
         interval = timedelta(int(config['DATA']['days']))
@@ -40,8 +43,10 @@ class MailWorker():
         if volume > 1:
             sentbefore = (date.today() - (volume-1)*interval).strftime("%d-%b-%Y")
             condition += ' SENTBEFORE {date}'.format(date=sentbefore)
-        result, data = self.mail.search(None, '('+condition+')')
-        result, answereddata = self.mail.search(None, '(ANSWERED '+condition+')')
+        data = self.mail.uid('SEARCH', '('+condition+')')[1][0].split()
+        answereddata = self.mail.uid('SEARCH', '(ANSWERED '+condition+')')[1][0].split()
+        for uid in answereddata:
+            self.storeflag(uid)
         return data, answereddata
 
     def listHeaders(self):
@@ -57,10 +62,14 @@ class MailWorker():
     def fetch(self, data, answereddata):
         fulldata = []
         REPLY_SEPARATOR = "From:"
-        print(len(data[0].split()), 'Email numbers fetched.')
-        print(len(answereddata[0].split()), 'Emails were answered.')
-        for num in data[0].split():
-            typ, mdata = self.mail.fetch(num, '(RFC822)')
+        print(len(data), 'Email numbers fetched.')
+        print(len(answereddata), 'Emails were answered.')
+        #print(data)
+        for num in data:
+            typ, mdata = self.mail.uid('fetch', num, '(RFC822)')
+            if typ == 'NO':
+                print(num, typ)
+                continue
             for response_part in mdata:
                 if isinstance(response_part, tuple):
                     try:
@@ -72,7 +81,7 @@ class MailWorker():
             for lHeader in self.listHeaders():
                 if msg[lHeader] != None:
                     continue
-            for anum in answereddata[0].split():
+            for anum in answereddata:
                 if anum == num:
                     msg['Answered'] = 1
             text = ''
@@ -86,6 +95,7 @@ class MailWorker():
                 except:
                     text = str(msg.get_payload(None, True)).split(REPLY_SEPARATOR)[0]
             msg['NewSubject'] = email.header.make_header(email.header.decode_header(msg['Subject']))
+            msg['UID'] = num
 # FILTER OUT UNNEEDED CALENDAR ITEMS AND NOTIFICATIONS
             if text.find('path=/calendar/item') > 0:
                 continue
@@ -95,7 +105,6 @@ class MailWorker():
             #print(msg['NewSubject'])
             #msg.pop('Subject', None) # drop it for good
             fulldata.append(msg)
-            keys = msg.keys()
         return fulldata
 
     def cleanhtml(self, raw_html):

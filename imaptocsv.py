@@ -19,6 +19,7 @@ config.read('config.ini')
 def usefulHeaders():
     return [
         'Answered',
+        'UID',
         'Auto-Submitted',# whether its an auto-reply
         'Content-Language',
         'Date',
@@ -45,8 +46,6 @@ if __name__ == "__main__":
     mw = MailWorker()
     data, answereddata = mw.get_message_id_list(int(args.volume_number))
     mails = mw.fetch(data, answereddata)
-    for i in answereddata:
-        mw.storeflag(i)
     mw.mailclose()
     print(len(mails), "mails in dataset")
     mydata = np.empty((len(mails), len(usefulHeaders())), dtype='object')
@@ -61,6 +60,8 @@ if __name__ == "__main__":
 
     MyDataFrame = pd.DataFrame(mydata, columns=usefulHeaders(), dtype=str)
     if args.volume_number == 1:
+        MyDataFrame.to_csv(config['DATA']['recent_file'], sep=';', index=False)
+    elif args.volume_number == 2:
         MyDataFrame.to_csv(config['DATA']['primary_data_file'], sep=';', index=False)
     else:
         MyDataFrame.to_csv(config['DATA']['primary_data_file'], sep=';', mode='a', header=False, index=False)

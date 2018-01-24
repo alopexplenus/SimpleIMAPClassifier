@@ -6,8 +6,10 @@ import sys
 import pandas as pd
 import configparser
 import requests
+import pickle
 import re #may the force of regex be with you
 from sklearn import preprocessing
+from imaptocsv import usefulHeaders
 
 config = configparser.ConfigParser()
 config.read('config.ini')
@@ -21,25 +23,11 @@ def read_contacts_from_JSON():
     print(jsondata[100], " NUMBER 100")
 
 
-
-
-
 if __name__ == "__main__":
     print("LOADING DATA")
     filename = sys.argv.pop()
     df = pd.read_csv(config['DATA']['primary_data_file'], sep=';', index_col=False)
 
-    usefulHeaders = [
-        'isList',
-        'Answered',
-        'Content-Language',
-        'Date',
-        'From',
-        'To',
-        'CC',
-        'NewSubject',
-        'NewMessageText',
-        ]
 
 
     df.assign(isList=pd.Series(range(len(df))))
@@ -60,7 +48,7 @@ if __name__ == "__main__":
                 except:
                     print("ERROR COMPARING TO STRING: ", df[columnName][i])
             df.drop(columnName, axis=1, inplace=True)
-        elif not columnName in usefulHeaders:
+        elif not columnName in usefulHeaders():
             df.drop(columnName, axis=1, inplace=True)
 
     myDictIsVeryBig = dict()
@@ -157,10 +145,11 @@ if __name__ == "__main__":
 
 # labels to numbers
     for toField in ['From', 'Content-Language', 'Date']:
-        le = preprocessing.LabelEncoder()
+        encoder = preprocessing.LabelEncoder()
         print("FITTING: ", toField)
-        le.fit(df[toField])
-        df[toField] = le.transform(df[toField])
+        encoder.fit(df[toField])
+        pickle.dump(encoder, open(toField+"-Encoder.p", "wb"))
+        df[toField] = encoder.transform(df[toField])
     df.drop("CC", axis=1, inplace=True)
     df.drop("NewSubject", axis=1, inplace=True)
     df.drop("NewMessageText", axis=1, inplace=True)

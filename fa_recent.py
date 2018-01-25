@@ -20,6 +20,8 @@ if __name__ == "__main__":
     filename = sys.argv.pop()
     df = pd.read_csv(config['DATA']['recent_file'], sep=';', index_col=False)
     df_train = pd.read_csv(config['DATA']['labeled_data_file'], sep=';', index_col=False)
+    print("shape of train dataset: ", df_train.shape)
+    print("original shape of input dataset: ", df.shape)
 
     df.assign(weekday=pd.Series(range(len(df))))
 
@@ -32,19 +34,20 @@ if __name__ == "__main__":
     for columnName in list(df.columns.values):
         if not columnName in usefulHeaders():
             df.drop(columnName, axis=1, inplace=True)
+    print("input dataset after deleting stuff not in UsefulHeaders: ", df.shape)
 
 # adding column names like in training dataset
     counter = 0
     for columnName in list(df_train.columns):
         counter += 1
+        if counter == 1:
+            continue
         try:
-            df.assign(columnName=np.zeroes(range(len(df))))
-            df[columnName].fillna(0, inplace=True)
+            df.assign(columnName=pd.Series(range(len(df))))
+            df.loc[0, columnName] = 0
         except:
             print(columnName, " apparently already in df")
-    print(counter, "columns in train dataset")
-    print(df.shape)
-    print(len(list(df.columns.values)))
+    print("input dataset after adding columns from train dataset: ", df.shape)
 
 
 # CREATING DICTIONARIES
@@ -60,10 +63,8 @@ if __name__ == "__main__":
         for word in SubjectWords:
             #print(word)
             columnName = word+'_s'
-            try:
+            if columnName in df.columns:
                 df.loc[i, columnName] = 1
-            except:
-                print(columnName, " not found in dataframe")
 
         BodyWords = []
         try:
@@ -77,18 +78,14 @@ if __name__ == "__main__":
                 wc[word] += 1
             else:
                 wc[word] = 1
-            columnName = word+'_b'
-            try:
+            if columnName in df.columns:
                 df.loc[i, columnName] = wc[word]
-            except:
-                print(columnName, " not found in dataframe")
 
         toPeople = list(re.findall(r'[\w\.-]+@[\w\.-]+', str(df["To"][i])+', '+str(df["CC"][i])))
         for address in toPeople:
-            try:
+            if address in df.columns:
                 df.loc[i, address] = 1
-            except:
-                print(address, " not found in dataframe")
+    print("input dataset after filling occurences: ", df.shape)
 
 # removing old TO column
     df.drop("To", axis=1, inplace=True)
@@ -126,5 +123,7 @@ if __name__ == "__main__":
     df.drop("CC", axis=1, inplace=True)
     df.drop("NewSubject", axis=1, inplace=True)
     df.drop("NewMessageText", axis=1, inplace=True)
+    #df.drop('Answered', axis=1, inplace=True)
+    print("shape of resulting dataframe: ", df.shape)
     print("WRITING LABELED FILE")
     df.to_csv(config['DATA']['recent_labeled_file'], sep=';')

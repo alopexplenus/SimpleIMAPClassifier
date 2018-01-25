@@ -5,25 +5,23 @@ import numpy as np
 import pandas as pd
 import configparser
 import pickle
-from sklearn import preprocessing
-from sklearn.model_selection import train_test_split
-from sklearn.feature_extraction import DictVectorizer
-from sklearn.model_selection import train_test_split
-from sklearn.ensemble import RandomForestClassifier
+from mailworker import  MailWorker
 
 config = configparser.ConfigParser()
 config.read('config.ini')
 
 
 if __name__ == "__main__":
-    df = pd.read_csv(config['DATA']['recent_labeled_file'], sep=';')
-    print(df.describe())
+    df = pd.read_csv(config['DATA']['recent_labeled_file'], sep=';', index_col=False)
+    print(df.shape)
     df.fillna(0, inplace=True)
-    uid_list = np.asarray(df.UID)
-    df.drop('Answered', axis=1)
+    answered = np.asarray(df.Answered)[:, None]
+    uids = np.asarray(df.UID)[:, None]
+    print(uids)
+    df.drop('Answered', axis=1, inplace=True)
     df_features = df.to_dict(orient='records')
-    vec = DictVectorizer()
-    features = vec.fit_transform(df_features).toarray()
+    vec = pickle.load(open('vectorizer.p', 'rb'))
+    features = vec.transform(df_features).toarray()
 
     #print(labels_test)
     clf = pickle.load(open('model.p', 'rb'))
@@ -32,4 +30,10 @@ if __name__ == "__main__":
     predictions = clf.predict_proba(features)
     #np.append(predictions, labels_test)
     print(predictions.shape)
-    predictions_with_uid = np.hstack((predictions, uid_list))
+    predictions_with_uid = np.hstack((predictions, answered, uids))
+    print(predictions_with_uid)
+    mw = MailWorker()
+    for prediction in predictions_with_uid:
+        if prediction[0] < 0.9:
+            print(prediction[3])
+            mw.storeflag(str(int(prediction[3])))

@@ -21,20 +21,22 @@ def my_split(features, labels):
     labels_test = labels[-100:]
     return features_train, features_test, labels_train, labels_test
 
+
+
 if __name__ == "__main__":
-    df = pd.read_csv(config['DATA']['labeled_data_file'], sep=';')
-    #print(df.describe())
-    #print(df.head())
+    df = pd.read_csv(config['DATA']['labeled_data_file'], sep=';', index_col=False)
+    print(df.shape)
     df.fillna(0, inplace=True)
     answered = np.asarray(df.Answered)
-    df.drop('Answered', axis=1)
+    uids = np.asarray(df.UID)
+    df.drop('Answered', axis=1, inplace=True)
     df_features = df.to_dict(orient='records')
     vec = DictVectorizer()
     features = vec.fit_transform(df_features).toarray()
-    #features_train, features_test, labels_train, labels_test = train_test_split(features, answered, test_size=0.20, random_state=32)
+    pickle.dump(vec, open("vectorizer.p", "wb"))
+    print("after vectorization: ", features.shape)
     features_train, features_test, labels_train, labels_test = my_split(features, answered)
 
-    #print(labels_test)
     clf = RandomForestClassifier()
     clf.fit(features_train, labels_train)
     pickle.dump(clf, open("model.p", "wb"))
@@ -46,8 +48,8 @@ if __name__ == "__main__":
 #look what it actually predicts
     predictions = clf.predict_proba(features_test)
     #np.append(predictions, labels_test)
-    print(predictions.shape)
+    #print(predictions.shape)
     labels_test = labels_test[:, None]
-    print(labels_test.shape)
+    #print(labels_test.shape)
     test_estimations_with_answers = np.hstack((predictions, labels_test))
     print(test_estimations_with_answers)
